@@ -1,37 +1,87 @@
-년(Annual),구분,도보,승용차,자전거,택시,기타
-2023,전체,92.8,4.4,1.7,0.9,0.3
-2023,서울,91.0,5.0,2.7,0.8,0.5
-2023,부산,92.8,4.8,1.2,0.9,0.4
-2023,대구,92.7,4.8,1.8,0.7,0.1
-2023,인천,92.9,4.2,1.7,1.1,0.2
-2023,광주,94.0,3.2,1.4,1.1,0.3
-2023,대전,93.7,3.4,1.7,0.9,0.3
-2023,울산,92.9,4.8,1.1,0.9,0.4
-2023,세종,94.1,2.7,1.2,0.8,1.2
-2023,경기,92.7,4.6,1.6,0.8,0.3
-2023,강원,94.2,3.9,1.1,0.7,0.2
-2023,충북,94.3,3.9,1.2,0.5,0.2
-2023,충남,94.0,4.1,1.1,0.7,0.1
-2023,전북,93.7,3.8,1.6,0.8,0.2
-2023,전남,94.7,3.3,1.0,0.9,0.2
-2023,경북,93.9,3.9,1.2,0.9,0.2
-2023,경남,93.8,3.7,1.2,1.1,0.2
-2023,제주,93.2,4.0,1.7,0.6,0.5
-2024,전체,83.4,8.0,1.0,4.0,3.6
-2024,서울,83.5,7.9,1.2,4.2,3.2
-2024,부산,82.9,8.0,1.1,4.0,3.9
-2024,대구,83.3,8.9,0.7,4.0,3.1
-2024,인천,83.1,8.3,1.2,3.6,3.8
-2024,광주,83.9,8.9,0.8,3.1,3.3
-2024,대전,83.6,7.9,0.9,4.3,3.3
-2024,울산,85.4,6.8,0.7,4.0,3.2
-2024,세종,82.5,7.9,1.2,3.8,4.6
-2024,경기,83.3,8.1,1.0,3.9,3.7
-2024,강원,84.0,8.4,1.0,4.0,2.7
-2024,충북,83.0,8.7,1.1,3.8,3.5
-2024,충남,83.2,7.5,0.8,4.2,4.3
-2024,전북,83.9,7.5,1.1,3.4,4.1
-2024,전남,83.1,7.4,1.1,4.2,4.4
-2024,경북,83.9,7.9,1.0,4.3,3.0
-2024,경남,83.1,8.0,0.9,4.0,4.0
-2024,제주,82.4,8.3,0.7,4.2,4.4
+# Streamlit 앱: 대중교통현황조사 (심플형 업로드 버전)
+# 사용법: main.py로 저장 후 Streamlit Cloud 또는 로컬에서 실행
+# 터미널: streamlit run main.py
+
+import streamlit as st
+import pandas as pd
+import altair as alt
+
+st.set_page_config(page_title="대중교통 접근수단 시각화", layout="wide")
+
+st.title("🚍 대중교통 접근수단 시각화 (심플 버전)")
+st.markdown("CSV 파일을 업로드하면 자동으로 그래프를 생성합니다.")
+
+# ✅ 파일 업로드
+uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"])
+
+if uploaded_file is not None:
+    # 여러 인코딩을 시도해서 자동 탐색
+    for enc in ("cp949", "utf-8-sig", "utf-8", "euc-kr"):
+        try:
+            df = pd.read_csv(uploaded_file, encoding=enc)
+            st.success(f"✅ 파일을 성공적으로 불러왔습니다! (인코딩: {enc})")
+            break
+        except Exception:
+            df = None
+    else:
+        st.error("❌ CSV 파일을 읽을 수 없습니다. 인코딩을 확인해 주세요.")
+        st.stop()
+
+    # 데이터 미리보기
+    st.subheader("데이터 미리보기")
+    st.dataframe(df.head(20))
+
+    # 컬럼 이름 추정
+    cols = df.columns.tolist()
+    st.divider()
+
+    # 지역/연도/값 컬럼 선택
+    region_col = st.selectbox("시도(지역) 컬럼 선택", options=cols)
+    year_col = st.selectbox("연도 컬럼 선택", options=[None] + cols)
+    value_cols = st.multiselect("시각화할 지표 선택", options=[c for c in cols if c not in [region_col, year_col]], default=[cols[-1]])
+
+    if not value_cols:
+        st.warning("표시할 지표를 선택하세요.")
+        st.stop()
+
+    # 연도형 컬럼이 존재할 경우: 라인 차트
+    if year_col:
+        try:
+            df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+        except Exception:
+            pass
+
+        df_long = df.melt(id_vars=[region_col, year_col], value_vars=value_cols, var_name="지표", value_name="값")
+        df_long = df_long.dropna(subset=["값"])
+
+        st.subheader("📈 연도별 추이 (라인 차트)")
+        line_chart = alt.Chart(df_long).mark_line(point=True).encode(
+            x=alt.X(f"{year_col}:O", title="연도"),
+            y=alt.Y("값:Q", title="값"),
+            color="지표:N",
+            tooltip=[region_col, year_col, "지표", "값"]
+        ).properties(height=400)
+
+        st.altair_chart(line_chart, use_container_width=True)
+
+    # 막대 그래프 (지표별 지역 비교)
+    st.subheader("📊 지역별 지표 비교 (막대그래프)")
+    df_bar = df.melt(id_vars=[region_col], value_vars=value_cols, var_name="지표", value_name="값")
+    df_bar = df_bar.dropna(subset=["값"])
+
+    bar_chart = alt.Chart(df_bar).mark_bar().encode(
+        y=alt.Y(f"{region_col}:N", sort='-x', title="시도"),
+        x=alt.X("값:Q", title="값"),
+        color="지표:N",
+        tooltip=[region_col, "지표", "값"]
+    ).properties(height=400)
+
+    st.altair_chart(bar_chart, use_container_width=True)
+
+    # 요약 통계
+    st.divider()
+    st.subheader("📋 요약 통계")
+    st.write(df[value_cols].describe())
+
+else:
+    st.info("왼쪽 상단에서 CSV 파일을 업로드하면 자동으로 시각화됩니다.")
